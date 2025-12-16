@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
+  RefreshControl, // EKLENDİ
 } from 'react-native';
 import { api } from '../api/client';
 
@@ -15,28 +16,43 @@ export default function ProfilesListScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasMore, setHasMore] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // EKLENDİ
 
-  const fetchProfiles = async () => {
-    if (loading || !hasMore) return;
+  const fetchProfiles = async (isRefresh = false) => {
+    if (loading || (!hasMore && !isRefresh)) return;
     
     setLoading(true);
     setError(null);
     
     try {
-      const res = await api.get(`/profiles?page=${page}&limit=10`);
+      const pageToFetch = isRefresh ? 1 : page;
+      const res = await api.get(`/profiles?page=${pageToFetch}&limit=10`);
       
       if (res.data.length === 0) {
         setHasMore(false);
       } else {
-        setProfiles(prev => [...prev, ...res.data]);
-        setPage(prev => prev + 1);
+        if (isRefresh) {
+            setProfiles(res.data);
+            setPage(2);
+        } else {
+            setProfiles(prev => [...prev, ...res.data]);
+            setPage(prev => prev + 1);
+        }
       }
     } catch (err) {
-      setError('Profiller yüklenemedi. Bağlantınızı kontrol edin.');
+      setError(err.message || 'Profiller yüklenemedi.'); // Güncellendi
       console.error(err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  // EKLENDİ: Yenileme fonksiyonu
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setHasMore(true);
+    await fetchProfiles(true);
   };
 
   useEffect(() => {
@@ -62,11 +78,30 @@ export default function ProfilesListScreen({ navigation }) {
     );
   };
 
+  const renderEmpty = () => { // EKLENDİ
+      if (loading) return null;
+      return (
+          <View style={styles.centerContainer}>
+              <Text style={styles.errorText}>Profil bulunamadı</Text>
+          </View>
+      );
+  };
+
+  // İlk yükleme
+  if (loading && profiles.length === 0 && !refreshing) {
+      return (
+          <View style={styles.centerContainer}>
+              <ActivityIndicator size="large" color="#007AFF" />
+              <Text style={{marginTop: 10}}>Profiller yükleniyor...</Text>
+          </View>
+      );
+  }
+
   if (error && profiles.length === 0) {
     return (
       <View style={styles.centerContainer}>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.retryButton} onPress={fetchProfiles}>
+        <Pressable style={styles.retryButton} onPress={() => fetchProfiles(true)}>
           <Text style={styles.retryText}>Tekrar Dene</Text>
         </Pressable>
       </View>
@@ -79,10 +114,14 @@ export default function ProfilesListScreen({ navigation }) {
         data={profiles}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderItem}
-        onEndReached={fetchProfiles}
+        onEndReached={() => fetchProfiles(false)}
         onEndReachedThreshold={0.5}
         ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty} // EKLENDİ
         contentContainerStyle={styles.listContent}
+        refreshControl={ // EKLENDİ
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       />
     </View>
   );
@@ -90,7 +129,7 @@ export default function ProfilesListScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
-  listContent: { padding: 16 },
+  listContent: { padding: 16, flexGrow: 1 },
   card: {
     backgroundColor: 'white',
     padding: 16,
